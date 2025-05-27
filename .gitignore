@@ -1,0 +1,42 @@
+# Dependencies
+node_modules/
+venv/
+env/
+.env
+.env.local
+.env.production
+
+# Production builds
+.next/
+build/
+dist/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Runtime
+.cache/
+.temp/
+
+# Deployment
+.vercel/
+.railway/
