@@ -23,7 +23,6 @@ function FeatureStream({ featureName }: { featureName: string }) {
   const [connectionAttempt, setConnectionAttempt] = useState(0);
   const frameIntervalRef = useRef<number | null>(null);
 
-
   const reconnect = () => {
     // Clean up existing socket if any
     if (socketRef.current) {
@@ -103,21 +102,19 @@ function FeatureStream({ featureName }: { featureName: string }) {
     // Set up socket connection after camera is initialized
     const setupSocket = () => {
       console.log(`Setting up connection attempt ${connectionAttempt}`);
+      console.log(`Connecting to: ${config.backendUrl}`);
       
       const connectionTimeout = setTimeout(() => {
         if (!connected && !error) {
-          setError("Connection timed out. Is the server running?");
+          setError("Connection timed out. Please check if the server is running.");
           setLoading(false);
         }
-      }, 15000);
+      }, 20000); // Increased timeout for production
       
       try {
-        // Replace with your actual server URL in production
         const socket = io(config.backendUrl, {
-          reconnection: true,
-          reconnectionAttempts: 5,
-          reconnectionDelay: 1000,
-          timeout: 10000,
+          ...config.socketOptions,
+          autoConnect: true,
         });
 
         socketRef.current = socket;
@@ -125,13 +122,18 @@ function FeatureStream({ featureName }: { featureName: string }) {
         socket.on('connect', () => {
           console.log(`Connected to server. Starting feature: ${featureName}`);
           socket.emit('start_feature', { feature: featureName });
-          // Don't set connected=true yet, wait for ready_for_frames signal
+          clearTimeout(connectionTimeout);
         });
 
-        socket.on('disconnect', () => {
-          console.log('Disconnected from server.');
+        socket.on('disconnect', (reason) => {
+          console.log('Disconnected from server:', reason);
           setConnected(false);
-          setError("Connection lost. The server has disconnected.");
+          if (reason === 'io server disconnect') {
+            // Server disconnected, try to reconnect
+            setError("Server connection lost. Attempting to reconnect...");
+          } else {
+            setError("Connection lost. Please try reconnecting.");
+          }
           setLoading(false);
           if (frameIntervalRef.current) {
             window.clearInterval(frameIntervalRef.current);
@@ -150,12 +152,25 @@ function FeatureStream({ featureName }: { featureName: string }) {
         socket.on('error', (data: {message: string}) => {
           console.error('Server error:', data.message);
           setError(`Server error: ${data.message}`);
+          clearTimeout(connectionTimeout);
         });
 
         socket.on('connect_error', (error: Error) => {
           console.error('Connection error:', error);
-          setError(`Connection error: ${error.message}`);
+          setError(`Connection error: ${error.message}. Please ensure the server is running.`);
           setLoading(false);
+          clearTimeout(connectionTimeout);
+        });
+
+        socket.on('reconnect', (attemptNumber: number) => {
+          console.log(`Reconnected after ${attemptNumber} attempts`);
+          setError(null);
+          setLoading(true);
+        });
+
+        socket.on('reconnect_error', (error: Error) => {
+          console.error('Reconnection failed:', error);
+          setError(`Reconnection failed: ${error.message}`);
         });
 
         // Start sending frames once connected
@@ -167,6 +182,7 @@ function FeatureStream({ featureName }: { featureName: string }) {
           }
           setConnected(true);
           setLoading(false);
+          setError(null);
         });
 
         return () => {
@@ -245,7 +261,9 @@ function FeatureStream({ featureName }: { featureName: string }) {
           <div className="absolute inset-0 flex items-center justify-center">
             <div className="flex flex-col items-center gap-4">
               <div className="h-12 w-12 rounded-full border-4 border-primary border-t-transparent animate-spin" />
-              <p className="text-muted-foreground">Connecting to server...</p>
+              <p className="text-muted-foreground">
+                {connectionAttempt > 0 ? 'Reconnecting to server...' : 'Connecting to server...'}
+              </p>
             </div>
           </div>
         ) : error ? (

@@ -12,6 +12,10 @@ class VirtualPainter:
         # Reduce detection confidence for better performance
         self.detector = HandDetector(detectionCon=0.6, maxHands=2)
 
+        # Define standard header dimensions
+        self.HEADER_HEIGHT = 104
+        self.HEADER_WIDTH = 1007
+
         # Try to load header images from Images folder
         self.project_root = os.path.abspath(os.path.dirname(__file__))
         self.folder = os.path.join(self.project_root, 'Images')
@@ -24,9 +28,16 @@ class VirtualPainter:
             self.header_images = [self.header]
         else:
             try:
-                self.header_images = [cv2.imread(os.path.join(self.folder, img)) for img in os.listdir(self.folder)]
-                # Filter out None values (failed image loads)
-                self.header_images = [img for img in self.header_images if img is not None]
+                # Load and resize all header images to standard dimensions
+                self.header_images = []
+                for img_name in os.listdir(self.folder):
+                    img_path = os.path.join(self.folder, img_name)
+                    img = cv2.imread(img_path)
+                    if img is not None:
+                        # Resize to standard header dimensions
+                        img_resized = cv2.resize(img, (self.HEADER_WIDTH, self.HEADER_HEIGHT), 
+                                               interpolation=cv2.INTER_AREA)
+                        self.header_images.append(img_resized)
 
                 if not self.header_images:
                     self.header = self.create_default_header()
@@ -94,7 +105,8 @@ class VirtualPainter:
 
     def create_default_header(self):
         """Create a default header with drawing tools"""
-        header = np.zeros((104, 1007, 3), np.uint8)
+        # Use the standard dimensions
+        header = np.zeros((self.HEADER_HEIGHT, self.HEADER_WIDTH, 3), np.uint8)
         header[:] = (50, 50, 50)  # Dark gray background
 
         # Pink brush
@@ -203,8 +215,14 @@ class VirtualPainter:
         alpha = 0.7
         cv2.addWeighted(result, alpha, ui_layer, 1 - alpha, 0, result)
 
-        # Add header
-        result[:104, :1007] = self.header
+        # Add header - ensure dimensions match exactly
+        if self.header.shape == (self.HEADER_HEIGHT, self.HEADER_WIDTH, 3):
+            result[:self.HEADER_HEIGHT, :self.HEADER_WIDTH] = self.header
+        else:
+            # If header dimensions don't match, resize it
+            header_resized = cv2.resize(self.header, (self.HEADER_WIDTH, self.HEADER_HEIGHT), 
+                                      interpolation=cv2.INTER_AREA)
+            result[:self.HEADER_HEIGHT, :self.HEADER_WIDTH] = header_resized
 
         self.last_frame = result
         return result
@@ -356,7 +374,12 @@ class VirtualPainter:
                 self.selected = 'brush1'
             elif 200 < x1 < 300:  # Red brush
                 if len(self.header_images) > 1:
-                    self.header = cv2.resize(self.header_images[1], (1007, 104), interpolation=cv2.INTER_AREA)
+                    # Ensure the header is properly resized
+                    self.header = cv2.resize(self.header_images[1], (self.HEADER_WIDTH, self.HEADER_HEIGHT), 
+                                           interpolation=cv2.INTER_AREA)
+                else:
+                    # Use default header if no second image available
+                    self.header = self.header_images[0]
                 self.color1 = (0, 0, 255)
                 self.color2 = (0, 0, 255)
                 self.color3 = (0, 0, 255)
@@ -513,25 +536,3 @@ class VirtualPainter:
         self.doneL = False
         self.show_options = False
         self.fill_type = None
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
