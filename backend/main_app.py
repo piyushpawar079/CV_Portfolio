@@ -17,9 +17,24 @@ from dotenv import load_dotenv
 
 load_dotenv()
 app = Flask(__name__)
-CORS(app, origins=os.getenv('CORS_ORIGINS', '*').split(','))
+
+# Configure CORS for Render deployment
+cors_origins = os.getenv('CORS_ORIGINS', '*')
+if cors_origins != '*':
+    cors_origins = cors_origins.split(',')
+
+CORS(app, origins=cors_origins)
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'your_secret_key')
-socketio = SocketIO(app, cors_allowed_origins="*", ping_timeout=10, ping_interval=5)
+
+# Configure SocketIO for production
+socketio = SocketIO(
+    app, 
+    cors_allowed_origins=cors_origins,
+    ping_timeout=60,
+    ping_interval=25,
+    logger=False,
+    engineio_logger=False
+)
 
 # Dictionary to store active feature instances and their stream threads
 active_features = {}
@@ -34,6 +49,14 @@ feature_registry = {
     'ppt-presenter': PresentationController
 }
 
+# Add a health check endpoint for Render
+@app.route('/')
+def health_check():
+    return {'status': 'healthy', 'service': 'cv-portfolio-backend'}, 200
+
+@app.route('/health')
+def health():
+    return {'status': 'ok'}, 200
 
 @socketio.on('process_frame')
 def process_frame(data):
@@ -194,10 +217,17 @@ def handle_disconnect():
 
 if __name__ == '__main__':
     try:
-        print("Starting Computer Vision server on port 5000...")
+        print("Starting Computer Vision server...")
         port = int(os.getenv('PORT', 5000))
         debug = os.getenv('DEBUG', 'False').lower() == 'true'
-        socketio.run(app, host='0.0.0.0', port=port, debug=debug, allow_unsafe_werkzeug=True)
+        
+        # Use different configurations for development vs production
+        if os.getenv('RENDER'):
+            # Production on Render
+            socketio.run(app, host='0.0.0.0', port=port, debug=False)
+        else:
+            # Development
+            socketio.run(app, host='0.0.0.0', port=port, debug=debug, allow_unsafe_werkzeug=True)
     except Exception as e:
         print(f"Failed to start server: {e}")
         traceback.print_exc()
