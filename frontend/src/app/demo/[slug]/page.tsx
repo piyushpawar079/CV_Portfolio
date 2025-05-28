@@ -9,17 +9,22 @@ export async function generateStaticParams() {
   }));
 }
 
-export default async function DemoPage({ params }: { params: { slug: string } }) {
-  const data = await params;
-  const project = getProjectData().find((p) => p.id ===  data.slug);
+export default async function DemoPage({ 
+  params 
+}: { 
+  params: Promise<{ slug: string }> 
+}) {
+  // Await the params promise
+  const { slug } = await params;
   
+  const project = getProjectData().find((p) => p.id === slug);
+
   if (!project) {
     notFound();
   }
 
   return (
-    <div className="container ">
-      {/* <BackButton /> */}
+    <div className="container">
       <DemoContainer project={project} />
     </div>
   );

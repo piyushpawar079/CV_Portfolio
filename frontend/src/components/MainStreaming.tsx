@@ -23,21 +23,6 @@ function FeatureStream({ featureName }: { featureName: string }) {
   const [connectionAttempt, setConnectionAttempt] = useState(0);
   const frameIntervalRef = useRef<number | null>(null);
 
-  const toggleConnect = () => {
-    if (connected) {
-      // If connected, disconnect
-      socketRef.current?.emit('stop_feature');
-      socketRef.current?.disconnect();
-      setConnected(false);
-      if (frameIntervalRef.current) {
-        window.clearInterval(frameIntervalRef.current);
-        frameIntervalRef.current = null;
-      }
-    } else {
-      // If disconnected, reconnect
-      reconnect();
-    }
-  };
 
   const reconnect = () => {
     // Clean up existing socket if any
@@ -119,7 +104,7 @@ function FeatureStream({ featureName }: { featureName: string }) {
     const setupSocket = () => {
       console.log(`Setting up connection attempt ${connectionAttempt}`);
       
-      let connectionTimeout = setTimeout(() => {
+      const connectionTimeout = setTimeout(() => {
         if (!connected && !error) {
           setError("Connection timed out. Is the server running?");
           setLoading(false);

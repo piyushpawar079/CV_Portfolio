@@ -96,7 +96,7 @@ export default function ProjectsShowcase() {
                 <div className="relative aspect-video overflow-hidden">
                   {project.demoPath && !videoErrors[project.id] ? (
                     <video
-                      ref={el => videoRefs.current[project.id] = el}
+                      ref={el => { videoRefs.current[project.id] = el; }}
                       className="absolute inset-0 w-full h-full object-cover"
                       muted
                       playsInline

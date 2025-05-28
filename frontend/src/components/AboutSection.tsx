@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from 'framer-motion';
-import { CheckCircle, Cpu, Zap, Code, Monitor } from 'lucide-react';
+import { CheckCircle, Cpu, Zap, Monitor } from 'lucide-react';
 
 export default function AboutSection() {
   const featureItems = [

@@ -1,7 +1,6 @@
 import { notFound } from 'next/navigation';
 import { getProjectData } from '@/lib/projectData';
 import ProjectDetails from '@/components/ProjectDetails';
-import BackButton from '@/components/BackButton';
 
 export async function generateStaticParams() {
   const projects = getProjectData();
@@ -10,8 +9,9 @@ export async function generateStaticParams() {
   }));
 }
 
-export default function ProjectPage({ params }: { params: { slug: string } }) {
-  const project = getProjectData().find((p) => p.id === params.slug);
+export default async function ProjectPage({ params }: { params: Promise<{ slug: string }> }) {
+  const { slug } = await params;
+  const project = getProjectData().find((p) => p.id === slug);
   
   if (!project) {
     notFound();

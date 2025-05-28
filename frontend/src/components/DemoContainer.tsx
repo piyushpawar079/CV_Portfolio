@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
-import { AlertCircle, ChevronRight, Maximize2, Minimize2, Play, RefreshCw, Volume2, VolumeX } from 'lucide-react';
+import { AlertCircle, ChevronRight, Maximize2, Minimize2, Volume2, VolumeX } from 'lucide-react';
 import Link from 'next/link';
 import { ProjectData } from '@/lib/projectData';
 import {
@@ -23,9 +23,7 @@ export default function DemoContainer({ project }: { project: ProjectData }) {
   const [fullscreen, setFullscreen] = useState(false);
   const [muted, setMuted] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [showInstructions, setShowInstructions] = useState(true);
   const socketRef = useRef<WebSocket | null>(null);
-  const videoRef = useRef<HTMLImageElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
