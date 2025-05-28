@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: virtual-mouse-backend
+    env: python
+    region: oregon
+    plan: starter
+    buildCommand: |
+      pip install --upgrade pip
+      apt-get update
+      apt-get install -y xvfb x11-utils libx11-dev libxext-dev libxrender-dev libxtst-dev
+      pip install -r requirements.txt
+    startCommand: |
+      export DISPLAY=:99
+      Xvfb :99 -screen 0 1024x768x24 -ac +extension GLX +render -noreset &
+      sleep 2
+      python main_app.py
+    envVars:
+      - key: DISPLAY
+        value: ":99"
+      - key: RENDER
+        value: "true"
