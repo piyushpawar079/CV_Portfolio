@@ -8,7 +8,7 @@ const config = {
     reconnection: true,
     reconnectionAttempts: 5,
     reconnectionDelay: 1000,
-    timeout: 20000,
+    timeout: 90000,
     forceNew: true,
     transports: ['websocket', 'polling'], // Fallback to polling if WebSocket fails
   }
