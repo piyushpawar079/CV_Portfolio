@@ -549,7 +549,7 @@ if __name__ == '__main__':
         # Use different configurations for development vs production
         if os.getenv('RENDER'):
             print("Running in PRODUCTION mode (Render)")
-            socketio.run(app, host='0.0.0.0', port=port, debug=False)
+            socketio.run(app, host='0.0.0.0', port=port, debug=False, allow_unsafe_werkzeug=True)
         else:
             print("Running in DEVELOPMENT mode")
             socketio.run(app, host='0.0.0.0', port=port, debug=debug, allow_unsafe_werkzeug=True)
