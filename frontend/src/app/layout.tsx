@@ -5,6 +5,7 @@ import { ThemeProvider } from '@/components/theme-provider';
 import Navbar from '@/components/Navbar';
 import Footer from '@/components/Footer';
 import { Toaster } from 'sonner';
+import { Analytics } from "@vercel/analytics/next"
 
 const inter = Inter({ subsets: ['latin'] });
 
@@ -28,7 +29,10 @@ export default function RootLayout({
         >
           <div className="min-h-screen flex flex-col">
             <Navbar />
-            <main className="flex-grow">{children}</main>
+            <main className="flex-grow">
+              {children}
+              <Analytics />
+            </main>
             <Toaster />
             <Footer />
           </div>
