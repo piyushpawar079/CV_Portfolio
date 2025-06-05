@@ -240,8 +240,9 @@
 #             except:
 #                 pass
 
-
 import traceback
+import sys
+import importlib
 from flask import Flask, request
 from flask_socketio import SocketIO, emit
 from flask_cors import CORS
@@ -251,14 +252,8 @@ import numpy as np
 import os
 import threading
 import time
+import gc
 from concurrent.futures import ThreadPoolExecutor
-
-from Virtual_Mouse_app import VirtualMouse
-from Virtual_Paint_app import VirtualPainter
-from Pong_Game_app import PongGame
-from Fitness_Tracker_App import ArmCurlsCounter
-from PPT_Presentation_App import PresentationController
-from Volume_Controll_App import VolumeControl
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -280,62 +275,144 @@ socketio = SocketIO(
     ping_interval=25,
     logger=False,
     engineio_logger=False,
-    async_mode='threading'  # Important for handling multiple clients
+    async_mode='threading'
 )
 
 # Thread pool for processing frames
-executor = ThreadPoolExecutor(max_workers=4)
+executor = ThreadPoolExecutor(max_workers=2)  # Reduced for better resource management
 
 # Dictionary to store active feature instances and their stream threads
 active_features = {}
 
-# Feature registry - maps feature names to their class
+# Feature registry - maps feature names to their module and class names
 feature_registry = {
-    'virtual-mouse': VirtualMouse,
-    'virtual-painter': VirtualPainter,
-    'volume-control': VolumeControl,
-    'pong-game': PongGame,
-    'fitness-tracker': ArmCurlsCounter,
-    'ppt-presenter': PresentationController
+    'virtual-mouse': {
+        'module': 'Virtual_Mouse_app',
+        'class': 'VirtualMouse',
+        'description': 'Control mouse with hand gestures'
+    },
+    'virtual-painter': {
+        'module': 'Virtual_Paint_app', 
+        'class': 'VirtualPainter',
+        'description': 'Draw in air with finger tracking'
+    },
+    'volume-control': {
+        'module': 'Volume_Controll_App',
+        'class': 'VolumeControl', 
+        'description': 'Control system volume with gestures'
+    },
+    'pong-game': {
+        'module': 'Pong_Game_app',
+        'class': 'PongGame',
+        'description': 'Play Pong with hand movements'
+    },
+    'fitness-tracker': {
+        'module': 'Fitness_Tracker_App',
+        'class': 'ArmCurlsCounter',
+        'description': 'Count arm curls automatically'
+    },
+    'ppt-presenter': {
+        'module': 'PPT_Presentation_App',
+        'class': 'PresentationController', 
+        'description': 'Control presentations with gestures'
+    }
 }
 
-# Pre-loaded feature instances to avoid loading during requests
-preloaded_features = {}
+# Cache for dynamically loaded modules and classes
+loaded_modules = {}
+feature_classes = {}
 
-def preload_features():
-    """Pre-load all feature classes to avoid initialization delays"""
-    print("Pre-loading CV features...")
+def dynamic_import_feature(feature_name):
+    """Dynamically import a feature module and class"""
+    if feature_name not in feature_registry:
+        raise ValueError(f"Unknown feature: {feature_name}")
     
-    for feature_name, feature_class in feature_registry.items():
+    feature_config = feature_registry[feature_name]
+    module_name = feature_config['module']
+    class_name = feature_config['class']
+    
+    try:
+        # Check if module is already loaded
+        if module_name not in loaded_modules:
+            print(f"📦 Dynamically importing {module_name}...")
+            
+            # Import the module
+            module = importlib.import_module(module_name)
+            loaded_modules[module_name] = module
+            
+            print(f"✅ Successfully imported {module_name}")
+        else:
+            print(f"♻️  Using cached module {module_name}")
+            module = loaded_modules[module_name]
+        
+        # Get the class from the module
+        if feature_name not in feature_classes:
+            feature_class = getattr(module, class_name)
+            feature_classes[feature_name] = feature_class
+            print(f"✅ Successfully loaded class {class_name}")
+        else:
+            print(f"♻️  Using cached class {class_name}")
+            feature_class = feature_classes[feature_name]
+        
+        return feature_class
+        
+    except ImportError as e:
+        print(f"❌ Import error for {module_name}: {e}")
+        raise
+    except AttributeError as e:
+        print(f"❌ Class {class_name} not found in {module_name}: {e}")
+        raise
+    except Exception as e:
+        print(f"❌ Unexpected error loading {feature_name}: {e}")
+        raise
+
+def cleanup_unused_features():
+    """Attempt to clean up unused feature instances"""
+    try:
+        # Force garbage collection
+        gc.collect()
+        
+        # Get memory info if available
         try:
-            print(f"Loading {feature_name}...")
+            import psutil
+            process = psutil.Process(os.getpid())
+            memory_mb = process.memory_info().rss / 1024 / 1024
+            print(f"💾 Current memory usage: {memory_mb:.1f} MB")
+        except ImportError:
+            pass
             
-            # Create instance but don't start it yet
-            instance = feature_class()
-            
-            # Disable camera initialization if it's a cloud environment
-            if hasattr(instance, 'setup_camera') and os.getenv('RENDER'):
-                instance.setup_camera = lambda: None
-            
-            # Store the class for later instantiation (not the instance)
-            preloaded_features[feature_name] = feature_class
-            print(f"✓ {feature_name} loaded successfully")
-            
-        except Exception as e:
-            print(f"✗ Failed to load {feature_name}: {e}")
-            # Don't let one failure stop the server
-            preloaded_features[feature_name] = feature_class
+    except Exception as e:
+        print(f"⚠️  Cleanup warning: {e}")
 
-    print("Feature pre-loading completed!")
-
-# Add a health check endpoint for Render
 @app.route('/')
 def health_check():
-    return {'status': 'healthy', 'service': 'cv-portfolio-backend', 'features': list(preloaded_features.keys())}, 200
+    available_features = list(feature_registry.keys())
+    loaded_features = list(feature_classes.keys())
+    
+    return {
+        'status': 'healthy',
+        'service': 'cv-portfolio-backend-dynamic',
+        'available_features': available_features,
+        'loaded_features': loaded_features,
+        'active_sessions': len(active_features)
+    }, 200
 
 @app.route('/health')
 def health():
     return {'status': 'ok'}, 200
+
+@app.route('/features')
+def get_features():
+    """Return available features with descriptions"""
+    return {
+        'features': {
+            name: {
+                'description': config['description'],
+                'loaded': name in feature_classes
+            }
+            for name, config in feature_registry.items()
+        }
+    }
 
 def process_frame_async(session_id, image_data):
     """Process frame asynchronously to avoid blocking SocketIO"""
@@ -350,7 +427,7 @@ def process_frame_async(session_id, image_data):
         frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
 
         if frame is None or frame.size == 0:
-            print("Received invalid frame")
+            print("⚠️  Received invalid frame")
             return
 
         # Check if feature is still running
@@ -369,7 +446,7 @@ def process_frame_async(session_id, image_data):
                 socketio.emit('processed_frame', {'image': processed_encoded}, room=session_id)
                 
     except Exception as e:
-        print(f"Error processing frame: {e}")
+        print(f"❌ Error processing frame: {e}")
         traceback.print_exc()
         socketio.emit('error', {'message': f'Error processing frame: {str(e)}'}, room=session_id)
 
@@ -392,58 +469,68 @@ def process_frame(data):
 
 @socketio.on('start_feature')
 def start_feature(data):
-    """Start a specific CV feature"""
+    """Start a specific CV feature with dynamic loading"""
     feature_name = data.get('feature')
     session_id = request.sid
 
-    print(f"=== STARTING FEATURE: {feature_name} for session {session_id} ===")
+    print(f"🚀 STARTING FEATURE: {feature_name} for session {session_id}")
 
-    # Stop any running feature for this session
+    # Stop any running feature for this session first
     stop_feature({'session_id': session_id})
 
-    if feature_name in preloaded_features:
-        try:
-            print(f"Creating new instance of {feature_name}")
+    # Validate feature name
+    if feature_name not in feature_registry:
+        print(f"❌ Invalid feature name: {feature_name}")
+        emit('error', {'message': f'Invalid feature name: {feature_name}'})
+        return
+
+    try:
+        # Dynamic import of the requested feature
+        print(f"📦 Loading feature: {feature_name}")
+        feature_class = dynamic_import_feature(feature_name)
+        
+        print(f"🏗️  Creating instance of {feature_name}")
+        feature_instance = feature_class()
+
+        # Handle cloud environment setup
+        if os.getenv('RENDER'):
+            # Disable camera-related features for cloud deployment
+            if hasattr(feature_instance, 'setup_camera'):
+                feature_instance.setup_camera = lambda: None
             
-            # Create new instance of the requested feature
-            feature_class = preloaded_features[feature_name]
-            feature_instance = feature_class()
+            # For features that might try to access camera during initialization
+            if hasattr(feature_instance, 'cap'):
+                feature_instance.cap = None
 
-            # Handle cloud environment setup
-            if os.getenv('RENDER'):
-                # Disable camera-related features for cloud deployment
-                if hasattr(feature_instance, 'setup_camera'):
-                    feature_instance.setup_camera = lambda: None
-                
-                # For features that might try to access camera during initialization
-                if hasattr(feature_instance, 'cap'):
-                    feature_instance.cap = None
+        # Disable actual mouse control by default for safety
+        if feature_name == 'virtual-mouse' and hasattr(feature_instance, 'toggle_control'):
+            feature_instance.toggle_control(False)
 
-            # Disable actual mouse control by default for safety
-            if feature_name == 'virtual-mouse' and hasattr(feature_instance, 'toggle_control'):
-                feature_instance.toggle_control(False)
+        # Store the feature instance
+        active_features[session_id] = {
+            'name': feature_name,
+            'instance': feature_instance,
+            'running': True,
+            'start_time': time.time()
+        }
 
-            # Store the feature instance
-            active_features[session_id] = {
-                'name': feature_name,
-                'instance': feature_instance,
-                'running': True
-            }
+        print(f"✅ Feature {feature_name} started successfully")
+        
+        # Cleanup unused resources
+        cleanup_unused_features()
+        
+        # Notify client that we're ready to receive frames
+        emit('ready_for_frames', {
+            'feature': feature_name, 
+            'status': 'ready',
+            'description': feature_registry[feature_name]['description']
+        })
+        emit('feature_started', {'feature': feature_name, 'status': 'success'})
 
-            print(f"✓ Feature {feature_name} started successfully")
-            
-            # Notify client that we're ready to receive frames
-            emit('ready_for_frames', {'feature': feature_name, 'status': 'ready'})
-            emit('feature_started', {'feature': feature_name, 'status': 'success'})
-
-        except Exception as e:
-            print(f"✗ Error starting feature {feature_name}: {e}")
-            traceback.print_exc()
-            emit('error', {'message': f'Error starting feature: {str(e)}'})
-            
-    else:
-        print(f"✗ Feature not found: {feature_name}")
-        emit('error', {'message': 'Feature not found'})
+    except Exception as e:
+        print(f"❌ Error starting feature {feature_name}: {e}")
+        traceback.print_exc()
+        emit('error', {'message': f'Error starting feature {feature_name}: {str(e)}'})
 
 @socketio.on('stop_feature')
 def stop_feature(data):
@@ -452,22 +539,32 @@ def stop_feature(data):
 
     if session_id in active_features:
         try:
-            feature_name = active_features[session_id]['name']
-            print(f"=== STOPPING FEATURE: {feature_name} for session {session_id} ===")
+            feature_info = active_features[session_id]
+            feature_name = feature_info['name']
+            run_time = time.time() - feature_info.get('start_time', 0)
+            
+            print(f"🛑 STOPPING FEATURE: {feature_name} for session {session_id} (ran for {run_time:.1f}s)")
 
             active_features[session_id]['running'] = False
             
             if 'instance' in active_features[session_id]:
                 try:
-                    active_features[session_id]['instance'].stop()
-                except:
-                    pass  # Some features might not have a stop method
+                    instance = active_features[session_id]['instance']
+                    if hasattr(instance, 'stop'):
+                        instance.stop()
+                    # Clear the instance reference
+                    active_features[session_id]['instance'] = None
+                except Exception as e:
+                    print(f"⚠️  Warning during feature stop: {e}")
 
             del active_features[session_id]
-            print(f"✓ Feature {feature_name} stopped successfully")
+            print(f"✅ Feature {feature_name} stopped successfully")
+            
+            # Cleanup after stopping a feature
+            cleanup_unused_features()
             
         except Exception as e:
-            print(f"✗ Error stopping feature: {e}")
+            print(f"❌ Error stopping feature: {e}")
             traceback.print_exc()
 
 @socketio.on('key_press')
@@ -477,9 +574,8 @@ def handle_key_press(data):
     if session_id in active_features and 'instance' in active_features[session_id]:
         try:
             feature = active_features[session_id]['instance']
-            # Check if the feature has a method to handle key presses
-            if hasattr(feature, 'handle_key_press'):
-                print(f"Key press: {data.get('key')}")
+            if feature and hasattr(feature, 'handle_key_press'):
+                print(f"⌨️  Key press: {data.get('key')}")
                 feature.handle_key_press(data)
             
             # Handle global key commands
@@ -487,7 +583,7 @@ def handle_key_press(data):
                 stop_feature({'session_id': session_id})
                 
         except Exception as e:
-            print(f"Error handling key press: {e}")
+            print(f"❌ Error handling key press: {e}")
             traceback.print_exc()
 
 def encode_frame(frame):
@@ -496,31 +592,35 @@ def encode_frame(frame):
         if frame is None or not isinstance(frame, np.ndarray):
             return None
 
-        # Check if frame is a valid image
         if frame.size == 0 or len(frame.shape) < 2:
             return None
 
-        # Resize frame for consistent output
+        # Resize frame for consistent output and better performance
         frame = cv2.resize(frame, (1280, 720))
         
         # Encode with lower quality for better performance
-        encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), 70]
+        encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), 60]  # Reduced quality
         _, buffer = cv2.imencode('.jpg', frame, encode_param)
         
         return base64.b64encode(buffer).decode('utf-8')
         
     except Exception as e:
-        print(f"Frame encoding error: {e}")
+        print(f"❌ Frame encoding error: {e}")
         return None
 
 @socketio.on('connect')
 def handle_connect():
-    print(f"=== CLIENT CONNECTED: {request.sid} ===")
-    emit('connection_status', {'status': 'connected', 'available_features': list(preloaded_features.keys())})
+    print(f"🔗 CLIENT CONNECTED: {request.sid}")
+    available_features = list(feature_registry.keys())
+    emit('connection_status', {
+        'status': 'connected', 
+        'available_features': available_features,
+        'server_type': 'dynamic_loading'
+    })
 
 @socketio.on('disconnect')
 def handle_disconnect():
-    print(f"=== CLIENT DISCONNECTED: {request.sid} ===")
+    print(f"🔌 CLIENT DISCONNECTED: {request.sid}")
     stop_feature({'session_id': request.sid})
 
 @socketio.on('ping')
@@ -528,44 +628,67 @@ def handle_ping():
     """Handle ping from client to keep connection alive"""
     emit('pong')
 
+@socketio.on('get_server_stats')
+def handle_stats():
+    """Return server statistics"""
+    stats = {
+        'active_sessions': len(active_features),
+        'loaded_modules': list(loaded_modules.keys()),
+        'loaded_features': list(feature_classes.keys()),
+        'available_features': list(feature_registry.keys())
+    }
+    
+    try:
+        import psutil
+        process = psutil.Process(os.getpid())
+        stats['memory_mb'] = round(process.memory_info().rss / 1024 / 1024, 1)
+        stats['cpu_percent'] = round(process.cpu_percent(), 1)
+    except ImportError:
+        pass
+    
+    emit('server_stats', stats)
+
 # Test endpoint for debugging
 @socketio.on('test_connection')
 def handle_test():
-    print(f"=== TEST CONNECTION from {request.sid} ===")
-    emit('test_response', {'message': 'Backend is working!', 'timestamp': time.time()})
+    print(f"🧪 TEST CONNECTION from {request.sid}")
+    emit('test_response', {
+        'message': 'Dynamic loading backend is working!', 
+        'timestamp': time.time(),
+        'loaded_features': list(feature_classes.keys())
+    })
 
 if __name__ == '__main__':
     try:
-        print("=== STARTING COMPUTER VISION SERVER ===")
-        
-        # Pre-load features before starting server
-        preload_features()
+        print("🚀 STARTING DYNAMIC CV SERVER")
+        print("📋 Available features:", list(feature_registry.keys()))
         
         port = int(os.getenv('PORT', 5000))
         debug = os.getenv('DEBUG', 'False').lower() == 'true'
         
-        print(f"Server starting on port {port}")
+        print(f"🌐 Server starting on port {port}")
         
         # Use different configurations for development vs production
         if os.getenv('RENDER'):
-            print("Running in PRODUCTION mode (Render)")
+            print("☁️  Running in PRODUCTION mode (Render)")
             socketio.run(app, host='0.0.0.0', port=port, debug=False, allow_unsafe_werkzeug=True)
         else:
-            print("Running in DEVELOPMENT mode")
+            print("🔧 Running in DEVELOPMENT mode")
             socketio.run(app, host='0.0.0.0', port=port, debug=debug, allow_unsafe_werkzeug=True)
             
     except Exception as e:
-        print(f"✗ Failed to start server: {e}")
+        print(f"❌ Failed to start server: {e}")
         traceback.print_exc()
     finally:
-        print("=== CLEANING UP ===")
+        print("🧹 CLEANING UP")
         # Clean up any active features
         for session_id in list(active_features.keys()):
             try:
-                if 'instance' in active_features[session_id]:
+                if 'instance' in active_features[session_id] and active_features[session_id]['instance']:
                     active_features[session_id]['instance'].stop()
             except:
                 pass
         
         # Shutdown thread pool
         executor.shutdown(wait=True)
+        print("✅ Cleanup completed")
